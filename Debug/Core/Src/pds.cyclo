@@ -1,0 +1,7 @@
+../Core/Src/pds.c:19:6:ADC_SelectCH0	2
+../Core/Src/pds.c:31:10:ADC_Read	2
+../Core/Src/pds.c:51:6:DBG_CyclesCounterInit	1
+../Core/Src/pds.c:61:6:uartWriteByte	1
+../Core/Src/pds.c:69:6:uartWriteByteArray	2
+../Core/Src/pds.c:77:6:gpioToggle	1
+../Core/Src/pds.c:82:6:trigger	3

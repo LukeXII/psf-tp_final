@@ -34,34 +34,34 @@ $(wildcard ../makefile.init) \
 $(wildcard ../makefile.targets) \
 
 
-BUILD_ARTIFACT_NAME := tp1
+BUILD_ARTIFACT_NAME := PSF-TP_Final
 BUILD_ARTIFACT_EXTENSION := elf
 BUILD_ARTIFACT_PREFIX :=
 BUILD_ARTIFACT := $(BUILD_ARTIFACT_PREFIX)$(BUILD_ARTIFACT_NAME)$(if $(BUILD_ARTIFACT_EXTENSION),.$(BUILD_ARTIFACT_EXTENSION),)
 
 # Add inputs and outputs from these tool invocations to the build variables 
 EXECUTABLES += \
-tp1.elf \
+PSF-TP_Final.elf \
 
 MAP_FILES += \
-tp1.map \
+PSF-TP_Final.map \
 
 SIZE_OUTPUT += \
 default.size.stdout \
 
 OBJDUMP_LIST += \
-tp1.list \
+PSF-TP_Final.list \
 
 
 # All Target
 all: main-build
 
 # Main-build Target
-main-build: tp1.elf secondary-outputs
+main-build: PSF-TP_Final.elf secondary-outputs
 
 # Tool invocations
-tp1.elf tp1.map: $(OBJS) $(USER_OBJS) C:\Users\Lucas\Desktop\PSF\EJ\ 5\ -\ 5\STM32F429ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "tp1.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Lucas\Desktop\PSF\EJ 5 - 5\STM32F429ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="tp1.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
+PSF-TP_Final.elf PSF-TP_Final.map: $(OBJS) $(USER_OBJS) C:\Users\Lucas\Desktop\Repos\psf-tp_final\STM32F429ZITX_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "PSF-TP_Final.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m4 -T"C:\Users\Lucas\Desktop\Repos\psf-tp_final\STM32F429ZITX_FLASH.ld" --specs=nosys.specs -Wl,-Map="PSF-TP_Final.map" -Wl,--gc-sections -static -L"C:\Users\Lucas\Desktop\Repos\psf-tp_final\Drivers\CMSIS\Lib\GCC" --specs=nano.specs -mfpu=fpv4-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 
@@ -70,14 +70,14 @@ default.size.stdout: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
 	@echo 'Finished building: $@'
 	@echo ' '
 
-tp1.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "tp1.list"
+PSF-TP_Final.list: $(EXECUTABLES) makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-objdump -h -S $(EXECUTABLES) > "PSF-TP_Final.list"
 	@echo 'Finished building: $@'
 	@echo ' '
 
 # Other Targets
 clean:
-	-$(RM) default.size.stdout tp1.elf tp1.list tp1.map
+	-$(RM) PSF-TP_Final.elf PSF-TP_Final.list PSF-TP_Final.map default.size.stdout
 	-@echo ' '
 
 secondary-outputs: $(SIZE_OUTPUT) $(OBJDUMP_LIST)

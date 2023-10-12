@@ -25,6 +25,11 @@
 #include "pds.h"
 #include <stdio.h>
 
+#include "arm_math.h"
+
+uint8_t uint32_to_string(uint32_t value, char *buffer, size_t buffer_size);
+void delay_us(uint32_t us);
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
@@ -33,19 +38,21 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-#define N_MUESTRAS  	256
-#define FREQ_MUESTREO	10000
+#define	BITS			10
+#define N_MUESTRAS  	128
+#define FREQ_MUESTREO	2000
 
-/* Header added to the stream */
 struct header_struct {
-   char     head[4];
+   char		pre[4];
    uint32_t id;
    uint16_t N;
    uint16_t fs ;
-   char     tail[4];
-} header={"head", 0, N_MUESTRAS, FREQ_MUESTREO, "tail"};
+   uint32_t maxIndex; 			// indexador de maxima energia por cada fft
+   q15_t 	maxValue;	  		// maximo valor de energia del bin por cada fft
+   char		pos[4];
+} __attribute__ ((packed));
 
-typedef uint8_t q7_t;
+struct header_struct header = {"head", 0, N_MUESTRAS, FREQ_MUESTREO, 0, 0, "tail"};
 
 /* USER CODE END PTD */
 
@@ -76,24 +83,18 @@ void SystemClock_Config(void);
 
 /* USER CODE END 0 */
 
-/**
-  * @brief  The application entry point.
-  * @retval int
-  */
-
-q7_t fixedPointMult(q7_t a, q7_t b)
-{
-	uint16_t res;
-
-	res = (uint16_t)a*(uint16_t)b;
-	res = res >> 7;
-
-	return (q7_t)res;
-}
 
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+
+   uint16_t sample = 0;
+   arm_rfft_instance_q15 S;
+   q15_t 	fftIn 	[ header.N	   	];		// guarda copia de samples en Q15 como in para la fft. La fft corrompe los datos de la entrada!
+   q15_t 	fftOut	[ header.N *2   ];		// salida de la fft
+   q15_t 	fftMag	[ header.N /2+1 ]; 		// magnitud de la FFT
+   int16_t 	adc 	[ header.N	   	];
+
 
   /* USER CODE END 1 */
 
@@ -118,12 +119,10 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_ADC1_Init();
-  MX_USART2_UART_Init();
+//  MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
-  uint16_t sample = 0;
   DBG_CyclesCounterInit(CLOCK_SPEED); // Enable the cycle counter
-  int16_t adc [N_MUESTRAS];
 
   /* USER CODE END 2 */
 
@@ -131,93 +130,111 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  q7_t a, b, c;
-	  uint8_t str[10], mask, i;
-	  float weight, resDec, dummy;
+	  uint8_t str[10];
+	  uint8_t val, digits;
 	  /* Reset cycle counter to 0 */
 	  DBG_CyclesCounterReset();
 
-	  a = 0x40;
-	  b = 0x23;
+//	  uartWriteByteArray ( &huart3, (uint8_t *)&adc[sample]			,sizeof(adc[0]) 	);	 	// envia el sample ANTERIOR
+//	  uartWriteByteArray ( &huart3, (uint8_t*)&fftOut[sample*2]		,sizeof(fftOut[0])	); 		// envia la fft del sample ANTERIOR
+//	  uartWriteByteArray ( &huart3, (uint8_t*)&fftOut[sample*2+1] 	,sizeof(fftOut[0])	); 		// envia la fft del sample ANTERIOR
 
-	  c = fixedPointMult(a, b);
+	  /* Get the ADC sample */
+	  adc[sample] = (((int16_t)ADC_Read(0)-512)>>(10-BITS))<<(6+10-BITS);
 
-	  sprintf(str, "%x", c);
+	  fftIn[sample] = adc[sample];
 
-	  str[2] = '\t';
-
-	  uartWriteByteArray(&huart3, (uint8_t *)"HEX: ", 5);
-	  uartWriteByteArray(&huart3, str, 3);
-
-	  mask = 0b01000000;
-	  weight = 0.5;
-	  resDec = 0.0;
-	  for(i = 0;i < 7;i++)
+	  /* Increment the sample counter and check if we are in the last sample */
+	  if ( ++sample == header.N )
 	  {
-		  if(mask & c)
-			  resDec += weight;
 
-		  mask /= 2;
-		  weight /= 2.0;
+		 /* Reset the samples */
+		 sample = 0;
+
+		 arm_rfft_init_q15		   ( &S		,header.N	  , 0				,1				  	); 	// inicializa una estructura que usa la funcion fft para procesar los datos. Notar el /2 para el largo
+		 arm_rfft_q15			   ( &S		,fftIn		  , fftOut							  	); 	// por fin.. ejecuta la rfft REAL fft
+		 arm_cmplx_mag_squared_q15 ( fftOut ,fftMag		  , header.N/2+1						);
+		 arm_max_q15			   ( fftMag ,header.N/2+1 , &header.maxValue, &header.maxIndex 	);
+
+
+		 digits = uint32_to_string(header.maxIndex, str, 10);
+
+		 uartWriteByteArray(&huart3, (uint8_t*)str, digits);
+
+		 val = 10;
+         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
+		 val = 13;
+         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
+
+         digits = uint32_to_string(FREQ_MUESTREO/N_MUESTRAS*header.maxIndex, str, 10);
+
+		 uartWriteByteArray(&huart3, (uint8_t*)str, digits);
+
+		 val = '\t';
+         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
+		 val = 10;
+         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
+		 val = 13;
+         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
+
+		 /* Increment id */
+		 header.id++;
+
+		 /* Send the header in an Array */
+//		 uartWriteByteArray (&huart3, (uint8_t*)&header, sizeof(header));
+
+//		 ADC_Read(0);
 	  }
-
-	  str[0] = (uint8_t)(resDec + 48);
-	  str[1] = '.';
-
-	  dummy = resDec;
-	  for(i = 0;i < 7;i++)
-	  {
-		  dummy *= 10.0;
-		  str[i+2] = (uint8_t)(dummy) + 48;
-		  dummy -= (float)(str[i+2] - 48);
-
-	  }
-
-	  uartWriteByteArray(&huart3, (uint8_t *)"DEC: ", 5);
-	  uartWriteByteArray(&huart3, str, 9);
-
-	  str[0] = 10;			// CR
-	  str[1] = 13;			// LF
-
-	  uartWriteByteArray(&huart3, str, 2);
-
-
-	  //	  /* Get the ADC sample */
-//	  adc[sample] = (int16_t)ADC_Read(0)-512;
-//
-//	  /* Send the sample in an Array */
-//	  uartWriteByteArray(&huart2, (uint8_t* )&adc[sample], sizeof(adc[0]));
-//
-//	  /* Increment the sample counter and check if we are in the last sample */
-//	  if ( ++sample==header.N ) {
-//
-//		 /* Blinks at fs/N frequency */
-//		 gpioToggle (GPIOB,LD1_Pin);
-//
-//		 /* Reset the samples */
-//		 sample = 0;
-//
-////		 trigger(2);
-//
-//		 /* Increment id */
-//		 header.id++;
-//
-//		 /* Send the header in an Array */
-//		 uartWriteByteArray (&huart2, (uint8_t*)&header, sizeof(header));
-//
-//		 //ADC_Read(0);
-//	  }
-	  /* Blinks at fs/2 frequency */
-	  gpioToggle (GPIOB,LD3_Pin);
 
 	  /* Wait until it completes the Cycles. 168.000.000/10.000 = 16.800 cycles */
-	  while(DBG_CyclesCounterRead() < CLOCK_SPEED/2);
+	  while(DBG_CyclesCounterRead() < CLOCK_SPEED/header.fs);
+
+//	  delay_us(100);
+
+//	  HAL_GPIO_TogglePin(GPIOB, LD1_Pin);
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
+}
+
+
+void delay_us(uint32_t us)
+{
+    uint32_t ticks = us * (HAL_RCC_GetHCLKFreq() / 1000000); // Convierte microsegundos a ciclos de reloj
+    uint32_t start = SysTick->VAL;
+
+    while ((SysTick->VAL - start) < ticks) {
+        // Espera hasta que el temporizador de conteo (SysTick) alcance el valor deseado
+    }
+}
+
+uint8_t uint32_to_string(uint32_t value, char *buffer, size_t buffer_size)
+{
+	uint8_t i, j, index = 0;
+
+	// Verifica si el buffer es suficientemente grande para almacenar la cadena.
+    if (buffer_size < 5)
+    {
+        printf("El buffer no es lo suficientemente grande.\n");
+        return 0;
+    }
+
+	do {
+		buffer[index++] = 48 + (value % 10);
+		value /= 10;
+	} while (value > 0);
+
+//	 Invertir la cadena para obtener el orden correcto.
+	for (i = 0, j = index - 1; i < j; i++, j--) {
+		char temp = buffer[i];
+		buffer[i] = buffer[j];
+		buffer[j] = temp;
+	}
+
+	return index;
 }
 
 /**

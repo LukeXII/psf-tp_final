@@ -29,6 +29,9 @@
 
 uint8_t uint32_to_string(uint32_t value, char *buffer, size_t buffer_size);
 void delay_us(uint32_t us);
+q15_t get_decimal_part(float32_t n);
+void transmitNewLine(void);
+uint8_t hallarIndiceNota(uint16_t frec);
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -39,8 +42,9 @@ void delay_us(uint32_t us);
 /* USER CODE BEGIN PTD */
 
 #define	BITS			10
-#define N_MUESTRAS  	128
-#define FREQ_MUESTREO	2000
+#define N_MUESTRAS  	128.0
+#define FREQ_MUESTREO	2000.0
+#define POWER_THRESHOLD	6
 
 struct header_struct {
    char		pre[4];
@@ -53,6 +57,38 @@ struct header_struct {
 } __attribute__ ((packed));
 
 struct header_struct header = {"head", 0, N_MUESTRAS, FREQ_MUESTREO, 0, 0, "tail"};
+
+typedef enum{
+	C4,
+	Cs4,
+	D4,
+	Ds4,
+	E4,
+	F4,
+	Fs4,
+	S4,
+	Ss4,
+	A4,
+	As4,
+	B4
+}NOTA;
+
+uint16_t frecNotas[12] = {261,277,293,311,329,349,369,392,415,440,466,493};
+
+char * stringNotasp[] = {
+		"C4",
+		"Cs4",
+		"D4",
+		"Ds4",
+		"E4",
+		"F4",
+		"Fs4",
+		"S4",
+		"Ss4",
+		"A4",
+		"As4",
+		"B4"
+};
 
 /* USER CODE END PTD */
 
@@ -94,7 +130,13 @@ int main(void)
    q15_t 	fftOut	[ header.N *2   ];		// salida de la fft
    q15_t 	fftMag	[ header.N /2+1 ]; 		// magnitud de la FFT
    int16_t 	adc 	[ header.N	   	];
+   uint32_t	temp;
+   char str[10];
+   uint8_t c, indicePrimeraNota, indiceSegundaNota;
+   uint16_t frecPrimeraNota, frecSegundaNota;
+   float32_t dummy;
 
+   temp = FREQ_MUESTREO/N_MUESTRAS*1000;
 
   /* USER CODE END 1 */
 
@@ -130,8 +172,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  uint8_t str[10];
-	  uint8_t val, digits;
+
 	  /* Reset cycle counter to 0 */
 	  DBG_CyclesCounterReset();
 
@@ -157,39 +198,73 @@ int main(void)
 		 arm_max_q15			   ( fftMag ,header.N/2+1 , &header.maxValue, &header.maxIndex 	);
 
 
-		 digits = uint32_to_string(header.maxIndex, str, 10);
+         arm_q15_to_float(&header.maxValue, &dummy, 1);
 
-		 uartWriteByteArray(&huart3, (uint8_t*)str, digits);
+         if(dummy*10000 >= POWER_THRESHOLD)
+         {
+        	 fftMag[header.maxIndex] = 0;
+        	 fftMag[header.maxIndex - 1] = 0;
+        	 fftMag[header.maxIndex + 1] = 0;
 
-		 val = 10;
-         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
-		 val = 13;
-         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
+        	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 10));
 
-         digits = uint32_to_string(FREQ_MUESTREO/N_MUESTRAS*header.maxIndex, str, 10);
+    		 c = '\t';
+             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
 
-		 uartWriteByteArray(&huart3, (uint8_t*)str, digits);
+             frecPrimeraNota = temp*header.maxIndex/1000;
+    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(frecPrimeraNota, str, 10));
 
-		 val = '\t';
-         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
-		 val = 10;
-         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
-		 val = 13;
-         HAL_UART_Transmit(&huart3, &val, 1, HAL_MAX_DELAY);
+    		 c = '\t';
+             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+
+    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
+
+
+    		 indicePrimeraNota = hallarIndiceNota(frecPrimeraNota);
+
+    		 c = '\t';
+             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+
+    		 uartWriteByteArray(&huart3, (uint8_t*)stringNotasp[indicePrimeraNota], 2);
+         }
+
+         arm_max_q15( fftMag ,header.N/2+1, &header.maxValue, &header.maxIndex);
+
+		 c = '\t';
+         HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+
+         if(dummy*10000 >= POWER_THRESHOLD)
+         {
+        	 fftMag[header.maxIndex] = 0;
+        	 fftMag[header.maxIndex - 1] = 0;
+        	 fftMag[header.maxIndex + 1] = 0;
+
+        	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 10));
+
+    		 c = '\t';
+             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+
+    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(temp*header.maxIndex/1000, str, 10));
+
+    		 c = '\t';
+             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+
+    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
+
+         }
+
+		 transmitNewLine();
 
 		 /* Increment id */
-		 header.id++;
+//		 header.id++;
 
 		 /* Send the header in an Array */
 //		 uartWriteByteArray (&huart3, (uint8_t*)&header, sizeof(header));
 
-//		 ADC_Read(0);
 	  }
 
 	  /* Wait until it completes the Cycles. 168.000.000/10.000 = 16.800 cycles */
 	  while(DBG_CyclesCounterRead() < CLOCK_SPEED/header.fs);
-
-//	  delay_us(100);
 
 //	  HAL_GPIO_TogglePin(GPIOB, LD1_Pin);
 
@@ -200,6 +275,24 @@ int main(void)
   /* USER CODE END 3 */
 }
 
+uint8_t hallarIndiceNota(uint16_t frec)
+{
+	uint8_t indiceNota = 0;
+
+	while( abs(frec - frecNotas[indiceNota]) > 10 )
+		indiceNota++;
+
+	return indiceNota;
+}
+
+void transmitNewLine(void)
+{
+	uint8_t c = 10;
+
+	HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+	c = 13;
+    HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+}
 
 void delay_us(uint32_t us)
 {

@@ -1,7 +1,7 @@
-../Core/Src/main.c:123:5:main	5
-../Core/Src/main.c:278:9:hallarIndiceNota	2
-../Core/Src/main.c:288:6:transmitNewLine	1
-../Core/Src/main.c:297:6:delay_us	2
-../Core/Src/main.c:307:9:uint32_to_string	4
-../Core/Src/main.c:337:6:SystemClock_Config	3
-../Core/Src/main.c:386:6:Error_Handler	1
+../Core/Src/main.c:108:5:main	5
+../Core/Src/main.c:267:9:hallarIndiceNota	2
+../Core/Src/main.c:277:6:transmitNewLine	1
+../Core/Src/main.c:286:6:delay_us	2
+../Core/Src/main.c:296:9:uint32_to_string	4
+../Core/Src/main.c:326:6:SystemClock_Config	3
+../Core/Src/main.c:375:6:Error_Handler	1

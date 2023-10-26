@@ -41,10 +41,11 @@ uint8_t hallarIndiceNota(uint16_t frec);
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 
-#define	BITS			10
-#define N_MUESTRAS  	128.0
-#define FREQ_MUESTREO	2000.0
-#define POWER_THRESHOLD	6
+#define	BITS					10
+#define MUESTRAS_TOMADAS		128.0
+#define MUESTRAS_ZERO_PADDING	0.0
+#define FREQ_MUESTREO			2000.0
+#define POWER_THRESHOLD			7			// 7 sin zero padding, 3 con zero padding
 
 struct header_struct {
    char		pre[4];
@@ -56,22 +57,22 @@ struct header_struct {
    char		pos[4];
 } __attribute__ ((packed));
 
-struct header_struct header = {"head", 0, N_MUESTRAS, FREQ_MUESTREO, 0, 0, "tail"};
+struct header_struct header = {"head", 0, MUESTRAS_TOMADAS + MUESTRAS_ZERO_PADDING, FREQ_MUESTREO, 0, 0, "tail"};
 
 uint16_t frecNotas[12] = {261,277,293,311,329,349,369,392,415,440,466,493};
-
+//						  C4  C4# D4  D4# E4  F4  F4# G4  G4# A4  A4# B4
 char * stringNotas[] = {
 		"C4",
-		"Cs4",
+		"C4#",
 		"D4",
-		"Ds4",
+		"D4#",
 		"E4",
 		"F4",
-		"Fs4",
-		"S4",
-		"Ss4",
+		"F4#",
+		"G4",
+		"G4#",
 		"A4",
-		"As4",
+		"A4#",
 		"B4"
 };
 
@@ -120,8 +121,9 @@ int main(void)
    uint8_t c, indicePrimeraNota, indiceSegundaNota;
    uint16_t frecPrimeraNota, frecSegundaNota;
    float32_t dummy;
+   uint8_t newlineflag;
 
-   temp = FREQ_MUESTREO/N_MUESTRAS*1000;
+   temp = FREQ_MUESTREO/(MUESTRAS_TOMADAS + MUESTRAS_ZERO_PADDING)*1000.0;
 
   /* USER CODE END 1 */
 
@@ -146,7 +148,7 @@ int main(void)
   MX_USART3_UART_Init();
   MX_USB_OTG_FS_PCD_Init();
   MX_ADC1_Init();
-//  MX_USART2_UART_Init();
+
   /* USER CODE BEGIN 2 */
 
   DBG_CyclesCounterInit(CLOCK_SPEED); // Enable the cycle counter
@@ -173,9 +175,9 @@ int main(void)
 	  fftIn[sample] = adc[sample];
 
 	  /* Increment the sample counter and check if we are in the last sample */
-	  if ( ++sample == header.N )
+	  if ( ++sample == (uint16_t)MUESTRAS_TOMADAS )
 	  {
-
+		 newlineflag = 0;
 		 /* Reset the samples */
 		 sample = 0;
 
@@ -186,36 +188,51 @@ int main(void)
 
          arm_q15_to_float(&header.maxValue, &dummy, 1);
 
+    	 fftMag[0] = 0;	fftMag[1] = 0;				// Supress the DC component
+
          if(dummy*10000 >= POWER_THRESHOLD)
          {
+        	 // Supress the fundamental freq.
         	 fftMag[header.maxIndex] = 0;
-        	 fftMag[header.maxIndex - 1] = 0;
-        	 fftMag[header.maxIndex + 1] = 0;
+//        	 fftMag[header.maxIndex - 1] = 0;
+//        	 fftMag[header.maxIndex + 1] = 0;
+
+//        	 // Supress the first harmonic
+        	 fftMag[2*header.maxIndex] = 0;
+        	 fftMag[2*header.maxIndex - 1] = 0;
+        	 fftMag[2*header.maxIndex + 1] = 0;
+
+//        	 // Supress the second harmonic
+//        	 fftMag[3*header.maxIndex] = 0;
+//        	 fftMag[3*header.maxIndex - 1] = 0;
+//        	 fftMag[3*header.maxIndex + 1] = 0;
 
         	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 10));
 
 
-             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
 
              frecPrimeraNota = temp*header.maxIndex/1000;
     		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(frecPrimeraNota, str, 10));
 
-             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
 
     		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
 
 
     		 indicePrimeraNota = hallarIndiceNota(frecPrimeraNota);
 
-             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
 
-    		 uartWriteByteArray(&huart3, (uint8_t*)stringNotas[indicePrimeraNota], 2);
+    		 uartWriteByteArray(&huart3, (uint8_t*)stringNotas[indicePrimeraNota], 3);
+
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
+
+    		 newlineflag = 1;
          }
 
          arm_max_q15( fftMag ,header.N/2+1, &header.maxValue, &header.maxIndex);
-
-		 c = '\t';
-         HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+         arm_q15_to_float(&header.maxValue, &dummy, 1);
 
          if(dummy*10000 >= POWER_THRESHOLD)
          {
@@ -225,24 +242,25 @@ int main(void)
 
         	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 10));
 
-             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
 
              frecSegundaNota = temp*header.maxIndex/1000;
 
     		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(temp*header.maxIndex/1000, str, 10));
 
-             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
 
     		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
 
     		 indiceSegundaNota = hallarIndiceNota(frecSegundaNota);
 
-             HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
 
      		 uartWriteByteArray(&huart3, (uint8_t*)stringNotas[indiceSegundaNota], 2);
          }
 
-		 transmitNewLine();
+         if(newlineflag)
+         	 transmitNewLine();
 
 		 /* Increment id */
 //		 header.id++;
@@ -264,23 +282,31 @@ int main(void)
   /* USER CODE END 3 */
 }
 
+// Recorre el arreglo de frecuencias buscando el mas cercano al argumento
 uint8_t hallarIndiceNota(uint16_t frec)
 {
-	uint8_t indiceNota = 0;
+	uint16_t indiceNota, valorNuevo, valorPrevio = 300;
 
-	while( abs(frec - frecNotas[indiceNota]) > 10 )
-		indiceNota++;
+	for(indiceNota = 0;indiceNota < 12;indiceNota++)
+	{
+		valorNuevo = abs(frec - frecNotas[indiceNota]);
 
-	return indiceNota;
+		if(valorNuevo > valorPrevio)
+			break;
+		else
+			valorPrevio = valorNuevo;
+	}
+
+	return --indiceNota;
 }
 
 void transmitNewLine(void)
 {
 	uint8_t c = 10;
 
-	HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart3, &c, 1, 1);
 	c = 13;
-    HAL_UART_Transmit(&huart3, &c, 1, HAL_MAX_DELAY);
+    HAL_UART_Transmit(&huart3, &c, 1, 1);
 }
 
 void delay_us(uint32_t us)
@@ -297,7 +323,7 @@ uint8_t uint32_to_string(uint32_t value, char *buffer, size_t buffer_size)
 {
 	uint8_t i, j, index = 0;
 
-	// Verifica si el buffer es suficientemente grande para almacenar la cadena.
+	//	Verifica si el buffer es suficientemente grande para almacenar la cadena
     if (buffer_size < 5)
     {
         printf("El buffer no es lo suficientemente grande.\n");
@@ -309,7 +335,7 @@ uint8_t uint32_to_string(uint32_t value, char *buffer, size_t buffer_size)
 		value /= 10;
 	} while (value > 0);
 
-//	 Invertir la cadena para obtener el orden correcto.
+	//	Invertir la cadena para obtener el orden correcto
 	for (i = 0, j = index - 1; i < j; i++, j--) {
 		char temp = buffer[i];
 		buffer[i] = buffer[j];

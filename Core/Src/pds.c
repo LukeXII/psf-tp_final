@@ -61,7 +61,7 @@ bool DBG_CyclesCounterInit( uint32_t clockSpeed )
 void uartWriteByte( UART_HandleTypeDef *huart, const uint8_t value)
 {
 	uint8_t val = value;
-	HAL_UART_Transmit(huart, &val, 1, HAL_MAX_DELAY);
+	HAL_UART_Transmit(huart, &val, 1, 1);
 }
 
 

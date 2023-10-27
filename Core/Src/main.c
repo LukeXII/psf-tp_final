@@ -28,7 +28,6 @@
 #include "arm_math.h"
 
 uint8_t uint32_to_string(uint32_t value, char *buffer, size_t buffer_size);
-void delay_us(uint32_t us);
 q15_t get_decimal_part(float32_t n);
 void transmitNewLine(void);
 uint8_t hallarIndiceNota(uint16_t frec);
@@ -43,9 +42,9 @@ uint8_t hallarIndiceNota(uint16_t frec);
 
 #define	BITS					10
 #define MUESTRAS_TOMADAS		128.0
-#define MUESTRAS_ZERO_PADDING	0.0
+#define MUESTRAS_ZERO_PADDING	128.0
 #define FREQ_MUESTREO			2000.0
-#define POWER_THRESHOLD			7			// 7 sin zero padding, 3 con zero padding
+#define POWER_THRESHOLD			2			// 7 sin zero padding, 3 con zero padding
 
 struct header_struct {
    char		pre[4];
@@ -118,8 +117,8 @@ int main(void)
    int16_t 	adc 	[ header.N	   	];
    uint32_t	temp;
    char str[10];
-   uint8_t c, indicePrimeraNota, indiceSegundaNota;
-   uint16_t frecPrimeraNota, frecSegundaNota;
+   uint8_t c = '\t', indicePrimeraNota, indiceSegundaNota;
+   uint16_t frecPrimeraNota, frecSegundaNota, i;
    float32_t dummy;
    uint8_t newlineflag;
 
@@ -153,7 +152,9 @@ int main(void)
 
   DBG_CyclesCounterInit(CLOCK_SPEED); // Enable the cycle counter
 
-  c = '\t';
+  // Fill with zeros
+  for(i = 128;i < header.N;i++)
+	  fftIn[i] = 0;
 
   /* USER CODE END 2 */
 
@@ -164,10 +165,6 @@ int main(void)
 
 	  /* Reset cycle counter to 0 */
 	  DBG_CyclesCounterReset();
-
-//	  uartWriteByteArray ( &huart3, (uint8_t *)&adc[sample]			,sizeof(adc[0]) 	);	 	// envia el sample ANTERIOR
-//	  uartWriteByteArray ( &huart3, (uint8_t*)&fftOut[sample*2]		,sizeof(fftOut[0])	); 		// envia la fft del sample ANTERIOR
-//	  uartWriteByteArray ( &huart3, (uint8_t*)&fftOut[sample*2+1] 	,sizeof(fftOut[0])	); 		// envia la fft del sample ANTERIOR
 
 	  /* Get the ADC sample */
 	  adc[sample] = (((int16_t)ADC_Read(0)-512)>>(10-BITS))<<(6+10-BITS);
@@ -181,11 +178,11 @@ int main(void)
 		 /* Reset the samples */
 		 sample = 0;
 
-		 arm_rfft_init_q15		   ( &S		,header.N	  , 0				,1				  	); 	// inicializa una estructura que usa la funcion fft para procesar los datos. Notar el /2 para el largo
-		 arm_rfft_q15			   ( &S		,fftIn		  , fftOut							  	); 	// por fin.. ejecuta la rfft REAL fft
+		 arm_rfft_init_q15		   ( &S		,header.N	  , 0				,1				  	);
+		 arm_rfft_q15			   ( &S		,fftIn		  , fftOut							  	);
 		 arm_cmplx_mag_squared_q15 ( fftOut ,fftMag		  , header.N/2+1						);
-		 arm_max_q15			   ( fftMag ,header.N/2+1 , &header.maxValue, &header.maxIndex 	);
 
+		 arm_max_q15			   ( fftMag ,header.N/2+1 , &header.maxValue, &header.maxIndex 	);
          arm_q15_to_float(&header.maxValue, &dummy, 1);
 
     	 fftMag[0] = 0;	fftMag[1] = 0;				// Supress the DC component
@@ -194,39 +191,35 @@ int main(void)
          {
         	 // Supress the fundamental freq.
         	 fftMag[header.maxIndex] = 0;
-//        	 fftMag[header.maxIndex - 1] = 0;
-//        	 fftMag[header.maxIndex + 1] = 0;
+        	 fftMag[header.maxIndex - 1] = 0;
+        	 fftMag[header.maxIndex + 1] = 0;
 
-//        	 // Supress the first harmonic
+        	 // Supress the first harmonic
         	 fftMag[2*header.maxIndex] = 0;
         	 fftMag[2*header.maxIndex - 1] = 0;
         	 fftMag[2*header.maxIndex + 1] = 0;
 
-//        	 // Supress the second harmonic
-//        	 fftMag[3*header.maxIndex] = 0;
-//        	 fftMag[3*header.maxIndex - 1] = 0;
-//        	 fftMag[3*header.maxIndex + 1] = 0;
+        	 // Imprime el bin del maximo encontrado
+//        	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 5));
+//        	 HAL_UART_Transmit(&huart3, &c, 1, 1);
 
-        	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 10));
-
-
-             HAL_UART_Transmit(&huart3, &c, 1, 1);
+    		 uartWriteByteArray(&huart3, (uint8_t*)"Frec.: ", 7);
 
              frecPrimeraNota = temp*header.maxIndex/1000;
-    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(frecPrimeraNota, str, 10));
+    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(frecPrimeraNota, str, 5));
+    		 uartWriteByteArray(&huart3, (uint8_t*)" Hz", 3);
 
              HAL_UART_Transmit(&huart3, &c, 1, 1);
 
-    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
-
+             // Imprime la potencia del bin
+//    		 uartWriteByteArray(&huart3, (uint8_t*)"Pot.: ", 6);
+//    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
+//           HAL_UART_Transmit(&huart3, &c, 1, 1);
 
     		 indicePrimeraNota = hallarIndiceNota(frecPrimeraNota);
 
-             HAL_UART_Transmit(&huart3, &c, 1, 1);
-
+    		 uartWriteByteArray(&huart3, (uint8_t*)"Nota: ", 6);
     		 uartWriteByteArray(&huart3, (uint8_t*)stringNotas[indicePrimeraNota], 3);
-
-             HAL_UART_Transmit(&huart3, &c, 1, 1);
 
     		 newlineflag = 1;
          }
@@ -236,44 +229,39 @@ int main(void)
 
          if(dummy*10000 >= POWER_THRESHOLD)
          {
-//        	 fftMag[header.maxIndex] = 0;
-//        	 fftMag[header.maxIndex - 1] = 0;
-//        	 fftMag[header.maxIndex + 1] = 0;
-
-        	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 10));
 
              HAL_UART_Transmit(&huart3, &c, 1, 1);
+             HAL_UART_Transmit(&huart3, "[]", 2, 1);
+             HAL_UART_Transmit(&huart3, &c, 1, 1);
+
+        	 // Imprime el bin del maximo encontrado
+//        	 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(header.maxIndex, str, 5));
+//           HAL_UART_Transmit(&huart3, &c, 1, 1);
+
+    		 uartWriteByteArray(&huart3, (uint8_t*)"Frec.: ", 7);
 
              frecSegundaNota = temp*header.maxIndex/1000;
-
-    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(temp*header.maxIndex/1000, str, 10));
+    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string(frecSegundaNota, str, 5));
+    		 uartWriteByteArray(&huart3, (uint8_t*)" Hz", 3);
 
              HAL_UART_Transmit(&huart3, &c, 1, 1);
 
-    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
+             // Imprime la potencia del bin
+//    		 uartWriteByteArray(&huart3, (uint8_t*)str, uint32_to_string((uint32_t)(dummy*10000), str, 10));
 
     		 indiceSegundaNota = hallarIndiceNota(frecSegundaNota);
 
-             HAL_UART_Transmit(&huart3, &c, 1, 1);
-
-     		 uartWriteByteArray(&huart3, (uint8_t*)stringNotas[indiceSegundaNota], 2);
+    		 uartWriteByteArray(&huart3, (uint8_t*)"Nota: ", 6);
+     		 uartWriteByteArray(&huart3, (uint8_t*)stringNotas[indiceSegundaNota], 3);
          }
 
          if(newlineflag)
          	 transmitNewLine();
 
-		 /* Increment id */
-//		 header.id++;
-
-		 /* Send the header in an Array */
-//		 uartWriteByteArray (&huart3, (uint8_t*)&header, sizeof(header));
-
 	  }
 
 	  /* Wait until it completes the Cycles. 168.000.000/10.000 = 16.800 cycles */
 	  while(DBG_CyclesCounterRead() < CLOCK_SPEED/header.fs);
-
-//	  HAL_GPIO_TogglePin(GPIOB, LD1_Pin);
 
     /* USER CODE END WHILE */
 
@@ -307,16 +295,6 @@ void transmitNewLine(void)
 	HAL_UART_Transmit(&huart3, &c, 1, 1);
 	c = 13;
     HAL_UART_Transmit(&huart3, &c, 1, 1);
-}
-
-void delay_us(uint32_t us)
-{
-    uint32_t ticks = us * (HAL_RCC_GetHCLKFreq() / 1000000); // Convierte microsegundos a ciclos de reloj
-    uint32_t start = SysTick->VAL;
-
-    while ((SysTick->VAL - start) < ticks) {
-        // Espera hasta que el temporizador de conteo (SysTick) alcance el valor deseado
-    }
 }
 
 uint8_t uint32_to_string(uint32_t value, char *buffer, size_t buffer_size)
